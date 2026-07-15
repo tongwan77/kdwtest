@@ -1,10 +1,15 @@
 {
   "name": "nutri-inventory",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "\uae09\uc2dd\uc18c \uc2dd\uc790\uc7ac \uc7ac\uace0\uad00\ub9ac \uc2dc\uc2a4\ud15c (Postgres/Neon + Vercel \ubc30\ud3ec\uc6a9)",
+  "main": "server.js",
+  "engines": { "node": ">=18" },
   "scripts": {
+    "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "pg": "^8.11.5"
   },
   "keywords": [],
   "author": "",

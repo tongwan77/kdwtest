@@ -1,0 +1,25 @@
+[Unit]
+Description=Nutritionist Food Inventory System
+After=network.target
+
+[Service]
+Type=simple
+# 실제 배포 경로로 수정하세요 (예: /home/ubuntu/nutri-inventory)
+WorkingDirectory=/home/ubuntu/nutri-inventory
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+Environment=PORT=8787
+Environment=NODE_ENV=production
+# Neon/Postgres 접속 문자열로 교체하세요 (Vercel Storage 탭 → .env.local 탭에서 확인 가능)
+Environment=POSTGRES_URL=postgres://사용자:비밀번호@호스트/디비이름?sslmode=require
+# 전용 리눅스 사용자로 실행하는 것을 권장 (root 대신)
+User=ubuntu
+Group=ubuntu
+
+# 표준출력/에러를 systemd 저널로 (journalctl -u nutri-inventory -f 로 확인)
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

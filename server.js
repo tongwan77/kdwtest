@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { router } = require('./api');
 const { sendJSON } = require('./util');
+const { initDb } = require('./db');
 
 const PORT = process.env.PORT || 8787;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -55,6 +56,17 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`영양사 식자재 재고관리 시스템이 http://localhost:${PORT} 에서 실행 중입니다.`);
-});
+async function start() {
+  try {
+    await initDb();
+  } catch (err) {
+    console.error('[server] DB 초기화 실패:', err.message);
+    console.error('POSTGRES_URL / DATABASE_URL 환경변수와 네트워크 연결(Neon 등)을 확인하세요.');
+    process.exit(1);
+  }
+  server.listen(PORT, () => {
+    console.log(`영양사 식자재 재고관리 시스템이 http://localhost:${PORT} 에서 실행 중입니다.`);
+  });
+}
+
+start();

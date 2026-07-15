@@ -80,19 +80,24 @@ async function boot() {
 }
 
 async function loadCommonData() {
-  const [stores, items, vendors, qc, pc] = await Promise.all([
+  const [stores, vendors, qc, pc] = await Promise.all([
     api('/api/stores'),
-    api('/api/items'),
     api('/api/vendors'),
     api('/api/common-codes?group=QUALITY_STATUS'),
     api('/api/common-codes?group=PACKAGE_STATUS'),
   ]);
   S.stores = stores.items;
-  S.items = items.items;
   S.vendors = vendors.items;
   S.qualityCodes = qc.items;
   S.packageCodes = pc.items;
   if (!S.selectedStoreId && S.stores.length) S.selectedStoreId = S.stores[0].id;
+}
+
+// 품목은 매장에 종속되므로, 특정 매장의 품목 목록이 필요할 때마다 조회한다.
+async function fetchItemsForStore(storeId) {
+  if (!storeId) return [];
+  const { items } = await api(`/api/items?store_id=${storeId}`);
+  return items;
 }
 
 // ---------------------------------------------------------------
@@ -456,54 +461,98 @@ const _origResetModal = resetPasswordModal;
 // =================================================================
 // 관리자: 품목 관리 (요건 3)
 // =================================================================
-async function pageItems() {
+async function pageItems(filterStoreId) {
   const c = document.getElementById('content');
-  const { items } = await api('/api/admin/items');
+  if (filterStoreId === undefined) filterStoreId = S.adminItemStoreId ?? (S.stores[0]?.id ?? '');
+  S.adminItemStoreId = filterStoreId;
+  const qs = filterStoreId ? `?store_id=${filterStoreId}` : '';
+  const { items } = await api(`/api/admin/items${qs}`);
   c.innerHTML = `
-    ${pageHead('품목 관리', '식자재 품목 마스터를 관리합니다. 향후 외부 시스템 API 연동(POST /api/integration/items)으로도 자동 등록될 수 있습니다.')}
+    ${pageHead('품목 관리', '식자재 품목은 매장별로 등록/관리됩니다. 동일한 품명코드라도 매장이 다르면 서로 다른 품목으로 등록할 수 있습니다. 향후 외부 시스템 API 연동(POST /api/integration/items, 매장코드 포함)으로도 자동 등록될 수 있습니다.')}
     <div class="card">
-      <div class="card-head"><h3>품목 목록 (${items.length})</h3><button class="btn btn-primary btn-sm" id="add-item-btn">+ 품목 추가</button></div>
+      <div class="card-head">
+        <h3>품목 목록 (${items.length})</h3>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select id="item-store-filter" style="min-width:160px;">
+            <option value="">전체 매장</option>
+            ${S.stores.map((s) => `<option value="${s.id}" ${String(filterStoreId) === String(s.id) ? 'selected' : ''}>${esc(s.store_name)}</option>`).join('')}
+          </select>
+          <button class="btn btn-primary btn-sm" id="add-item-btn" ${S.stores.length === 0 ? 'disabled' : ''}>+ 품목 추가</button>
+        </div>
+      </div>
       <div class="table-scroll"><table>
-        <thead><tr><th>품명코드</th><th>품명</th><th>대분류</th><th>중분류</th><th>소분류</th><th>규격/사양</th><th>구매단위</th><th>등록방식</th><th>상태</th><th>관리</th></tr></thead>
+        <thead><tr><th>매장</th><th>품명코드</th><th>품명</th><th>대분류</th><th>중분류</th><th>소분류</th><th>규격/사양</th><th>구매단위</th><th>등록방식</th><th>상태</th><th>관리</th></tr></thead>
         <tbody>
           ${items.map((it) => `<tr>
+            <td>${esc(it.store_name)}</td>
             <td>${esc(it.item_code)}</td><td>${esc(it.item_name)}</td><td>${esc(it.large_category)}</td><td>${esc(it.mid_category)}</td><td>${esc(it.small_category)}</td>
             <td>${esc(it.spec)}</td><td>${esc(it.purchase_unit)}</td>
             <td>${it.source === 'API' ? '<span class="badge badge-warn">API연동</span>' : '<span class="badge badge-muted">수기등록</span>'}</td>
             <td>${it.is_active ? '<span class="badge badge-good">사용</span>' : '<span class="badge badge-bad">중지</span>'}</td>
             <td class="row-actions"><button class="btn btn-secondary btn-sm" data-edit="${it.id}">수정</button><button class="btn btn-danger btn-sm" data-del="${it.id}">비활성화</button></td>
-          </tr>`).join('') || `<tr class="empty-row"><td colspan="10">등록된 품목이 없습니다.</td></tr>`}
+          </tr>`).join('') || `<tr class="empty-row"><td colspan="11">등록된 품목이 없습니다.</td></tr>`}
         </tbody>
       </table></div>
     </div>`;
-  document.getElementById('add-item-btn').addEventListener('click', () => itemModal());
+  document.getElementById('item-store-filter').addEventListener('change', (e) => pageItems(e.target.value));
+  document.getElementById('add-item-btn')?.addEventListener('click', () => itemModal(null, filterStoreId));
   items.forEach((it) => {
     c.querySelector(`[data-edit="${it.id}"]`).addEventListener('click', () => itemModal(it));
     c.querySelector(`[data-del="${it.id}"]`).addEventListener('click', () => confirmModal(`'${it.item_name}' 품목을 비활성화하시겠습니까?`, async () => {
-      await api(`/api/admin/items/${it.id}`, { method: 'DELETE' }); toast('처리되었습니다.', 'success'); await loadCommonData(); pageItems();
+      await api(`/api/admin/items/${it.id}`, { method: 'DELETE' }); toast('처리되었습니다.', 'success'); pageItems(filterStoreId);
     }));
   });
 }
-function itemModal(existing) {
-  openModal({
+function itemModal(existing, defaultStoreId) {
+  const modal = openModal({
     title: existing ? '품목 정보 수정' : '품목 추가',
     bodyHtml: `<div class="form-grid">
-      <div class="field"><label>품명코드 *</label><input name="item_code" value="${esc(existing?.item_code || '')}" ${existing ? 'disabled' : 'required'} /></div>
-      <div class="field"><label>품명 *</label><input name="item_name" value="${esc(existing?.item_name || '')}" required /></div>
+      <div class="field"><label>매장 *</label>
+        ${existing
+          ? `<input value="${esc(existing.store_name)}" disabled />`
+          : `<select name="store_id" required>${S.stores.map((s) => `<option value="${s.id}" ${String(defaultStoreId) === String(s.id) ? 'selected' : ''}>${esc(s.store_name)}</option>`).join('')}</select>`}
+      </div>
+      <div class="field"><label>품명코드 *</label><input name="item_code" id="item-code-input" value="${esc(existing?.item_code || '')}" ${existing ? 'disabled' : 'required'} /></div>
+      <div class="field"><label>품명 *</label><input name="item_name" id="item-name-input" value="${esc(existing?.item_name || '')}" required />
+        <div class="helper-text" id="item-name-hint"></div>
+      </div>
       <div class="field"><label>대분류</label><input name="large_category" value="${esc(existing?.large_category || '')}" /></div>
       <div class="field"><label>중분류</label><input name="mid_category" value="${esc(existing?.mid_category || '')}" /></div>
       <div class="field"><label>소분류</label><input name="small_category" value="${esc(existing?.small_category || '')}" /></div>
       <div class="field"><label>규격/사양</label><input name="spec" value="${esc(existing?.spec || '')}" /></div>
       <div class="field"><label>구매단위</label><input name="purchase_unit" value="${esc(existing?.purchase_unit || '')}" placeholder="예: kg, box, ea" /></div>
       ${existing ? `<div class="field"><label>상태</label><select name="is_active"><option value="1" ${existing.is_active ? 'selected' : ''}>사용</option><option value="0" ${!existing.is_active ? 'selected' : ''}>중지</option></select></div>` : ''}
+      <p class="helper-text span-2" style="grid-column:1/-1;">품명코드는 같은 매장 안에서는 중복 등록할 수 없고, 다른 매장에서는 별도 품목으로 등록할 수 있습니다. 단, 동일한 품명코드는 모든 매장에서 항상 같은 품명을 가져야 합니다. ${existing ? '품명을 수정하면 같은 품명코드를 쓰는 다른 매장의 품목명도 함께 자동으로 맞춰집니다.' : ''}</p>
     </div>`,
     onSubmit: async (fd, close) => {
       const body = Object.fromEntries(['item_name', 'large_category', 'mid_category', 'small_category', 'spec', 'purchase_unit'].map((k) => [k, fd.get(k)]));
       if (existing) { body.is_active = fd.get('is_active') === '1'; await api(`/api/admin/items/${existing.id}`, { method: 'PUT', body }); }
-      else { body.item_code = fd.get('item_code'); await api('/api/admin/items', { method: 'POST', body }); }
-      toast('저장되었습니다.', 'success'); close(); await loadCommonData(); pageItems();
+      else { body.item_code = fd.get('item_code'); body.store_id = Number(fd.get('store_id')); await api('/api/admin/items', { method: 'POST', body }); }
+      toast('저장되었습니다.', 'success'); close(); pageItems(S.adminItemStoreId);
     },
   });
+  if (!existing) {
+    const codeInput = modal.querySelector('#item-code-input');
+    const nameInput = modal.querySelector('#item-name-input');
+    const hint = modal.querySelector('#item-name-hint');
+    let lastLookupCode = null;
+    codeInput.addEventListener('change', async () => {
+      const code = codeInput.value.trim();
+      if (!code || code === lastLookupCode) return;
+      lastLookupCode = code;
+      try {
+        const { item_name } = await api(`/api/admin/items/lookup?item_code=${encodeURIComponent(code)}`);
+        if (item_name) {
+          nameInput.value = item_name;
+          nameInput.readOnly = true;
+          hint.textContent = `이미 다른 매장에 등록된 품명코드입니다. 품명은 '${item_name}'으로 고정됩니다.`;
+        } else {
+          nameInput.readOnly = false;
+          hint.textContent = '';
+        }
+      } catch (e) { /* 조회 실패 시 자유 입력 유지 */ }
+    });
+  }
 }
 
 // =================================================================
@@ -624,18 +673,26 @@ async function pageInitialStock() {
         <tbody>${items.map((r) => `<tr><td>${esc(r.store_name)}</td><td>${esc(r.item_code)}</td><td>${esc(r.item_name)}</td><td class="num">${fmtNum(r.quantity)}</td><td>${esc(r.set_at)}</td></tr>`).join('') || `<tr class="empty-row"><td colspan="5">설정된 기초재고가 없습니다. (모든 품목 기초재고 기본값 0)</td></tr>`}</tbody>
       </table></div>
     </div>`;
-  document.getElementById('add-is-btn').addEventListener('click', () => {
-    openModal({
+  document.getElementById('add-is-btn').addEventListener('click', async () => {
+    const defaultStoreId = S.stores[0]?.id;
+    const initialItems = await fetchItemsForStore(defaultStoreId);
+    const modal = openModal({
       title: '기초재고 등록/수정',
       bodyHtml: `<div class="form-grid">
-        <div class="field"><label>매장 *</label><select name="store_id" required>${S.stores.map((s) => `<option value="${s.id}">${esc(s.store_name)}</option>`).join('')}</select></div>
-        <div class="field"><label>품목 *</label><select name="item_id" required>${S.items.map((it) => `<option value="${it.id}">${esc(it.item_name)} (${esc(it.item_code)})</option>`).join('')}</select></div>
+        <div class="field"><label>매장 *</label><select name="store_id" id="is-store-select" required>${S.stores.map((s) => `<option value="${s.id}">${esc(s.store_name)}</option>`).join('')}</select></div>
+        <div class="field"><label>품목 *</label><select name="item_id" id="is-item-select" required>${initialItems.map((it) => `<option value="${it.id}">${esc(it.item_name)} (${esc(it.item_code)})</option>`).join('') || '<option value="">등록된 품목이 없습니다</option>'}</select></div>
         <div class="field span-2"><label>기초재고 수량 *</label><input name="quantity" type="number" step="0.01" value="0" required /></div>
       </div>`,
       onSubmit: async (fd, close) => {
+        if (!fd.get('item_id')) { toast('선택한 매장에 등록된 품목이 없습니다.', 'error'); return; }
         await api('/api/admin/initial-stock', { method: 'POST', body: { store_id: Number(fd.get('store_id')), item_id: Number(fd.get('item_id')), quantity: Number(fd.get('quantity')) } });
         toast('기초재고가 저장되었습니다.', 'success'); close(); pageInitialStock();
       },
+    });
+    modal.querySelector('#is-store-select').addEventListener('change', async (e) => {
+      const its = await fetchItemsForStore(e.target.value);
+      const sel = modal.querySelector('#is-item-select');
+      sel.innerHTML = its.map((it) => `<option value="${it.id}">${esc(it.item_name)} (${esc(it.item_code)})</option>`).join('') || '<option value="">등록된 품목이 없습니다</option>';
     });
   });
 }
@@ -788,15 +845,18 @@ async function renderInboundTable(c, filters) {
   });
 }
 
-function inboundModal(existing) {
+async function inboundModal(existing) {
   const defaultStore = existing?.store_id || (S.selectedStoreId !== 'all' ? S.selectedStoreId : S.stores[0]?.id);
+  const initialItems = existing
+    ? [{ id: existing.item_id, item_code: existing.item_code, item_name: existing.item_name }]
+    : await fetchItemsForStore(defaultStore);
   const modal = openModal({
     title: existing ? '입고 내역 수정' : '입고 등록',
     bodyHtml: `<div class="form-grid">
-      <div class="field"><label>매장 *</label><select name="store_id" required ${existing ? 'disabled' : ''}>${S.stores.map((s) => `<option value="${s.id}" ${String(defaultStore) === String(s.id) ? 'selected' : ''}>${esc(s.store_name)}</option>`).join('')}</select></div>
+      <div class="field"><label>매장 *</label><select name="store_id" id="ib-store-select" required ${existing ? 'disabled' : ''}>${S.stores.map((s) => `<option value="${s.id}" ${String(defaultStore) === String(s.id) ? 'selected' : ''}>${esc(s.store_name)}</option>`).join('')}</select></div>
       <div class="field">
         <label>품목 * <button type="button" class="btn btn-ghost btn-sm qr-btn" id="ib-qr-btn">📷 QR스캔</button></label>
-        <select name="item_id" id="ib-item-select" required ${existing ? 'disabled' : ''}>${S.items.map((it) => `<option value="${it.id}" data-code="${esc(it.item_code)}" ${String(existing?.item_id) === String(it.id) ? 'selected' : ''}>${esc(it.item_name)} (${esc(it.item_code)})</option>`).join('')}</select>
+        <select name="item_id" id="ib-item-select" required ${existing ? 'disabled' : ''}>${initialItems.map((it) => `<option value="${it.id}" data-code="${esc(it.item_code)}" ${String(existing?.item_id) === String(it.id) ? 'selected' : ''}>${esc(it.item_name)} (${esc(it.item_code)})</option>`).join('') || '<option value="">등록된 품목이 없습니다</option>'}</select>
       </div>
       <div class="field"><label>거래처 *</label><select name="vendor_id" required>${S.vendors.map((v) => `<option value="${v.id}" ${String(existing?.vendor_id) === String(v.id) ? 'selected' : ''}>${esc(v.vendor_name)}</option>`).join('')}</select></div>
       <div class="field"><label>입고일자 *</label><input name="inbound_date" type="date" value="${existing?.inbound_date || todayStr()}" required /></div>
@@ -835,6 +895,13 @@ function inboundModal(existing) {
     if (opt) { sel.value = opt.value; toast(`품목이 선택되었습니다: ${opt.textContent}`, 'success'); }
     else toast('일치하는 품목코드를 찾을 수 없습니다: ' + code, 'error');
   }));
+  if (!existing) {
+    modal.querySelector('#ib-store-select').addEventListener('change', async (e) => {
+      const its = await fetchItemsForStore(e.target.value);
+      const sel = modal.querySelector('#ib-item-select');
+      sel.innerHTML = its.map((it) => `<option value="${it.id}" data-code="${esc(it.item_code)}">${esc(it.item_name)} (${esc(it.item_code)})</option>`).join('') || '<option value="">등록된 품목이 없습니다</option>';
+    });
+  }
 }
 
 // =================================================================
@@ -885,13 +952,16 @@ async function renderOutboundTable(c, filters) {
 
 async function outboundModal(existing) {
   const defaultStore = existing?.store_id || (S.selectedStoreId !== 'all' ? S.selectedStoreId : S.stores[0]?.id);
+  const initialItems = existing
+    ? [{ id: existing.item_id, item_code: existing.item_code, item_name: existing.item_name }]
+    : await fetchItemsForStore(defaultStore);
   const modal = openModal({
     title: existing ? '출고 내역 수정' : '출고 등록',
     bodyHtml: `<div class="form-grid">
       <div class="field"><label>매장 *</label><select name="store_id" id="ob-store" required ${existing ? 'disabled' : ''}>${S.stores.map((s) => `<option value="${s.id}" ${String(defaultStore) === String(s.id) ? 'selected' : ''}>${esc(s.store_name)}</option>`).join('')}</select></div>
       <div class="field">
         <label>품목 * <button type="button" class="btn btn-ghost btn-sm qr-btn" id="ob-qr-btn">📷 QR스캔</button></label>
-        <select name="item_id" id="ob-item-select" required ${existing ? 'disabled' : ''}>${S.items.map((it) => `<option value="${it.id}" data-code="${esc(it.item_code)}" ${String(existing?.item_id) === String(it.id) ? 'selected' : ''}>${esc(it.item_name)} (${esc(it.item_code)})</option>`).join('')}</select>
+        <select name="item_id" id="ob-item-select" required ${existing ? 'disabled' : ''}>${initialItems.map((it) => `<option value="${it.id}" data-code="${esc(it.item_code)}" ${String(existing?.item_id) === String(it.id) ? 'selected' : ''}>${esc(it.item_name)} (${esc(it.item_code)})</option>`).join('') || '<option value="">등록된 품목이 없습니다</option>'}</select>
       </div>
       <div class="field"><label>출고일자 *</label><input name="outbound_date" type="date" value="${existing?.outbound_date || todayStr()}" required /></div>
       <div class="field"><label>수량 *</label><input name="quantity" type="number" step="0.01" min="0.01" value="${existing?.quantity || ''}" required /></div>
@@ -934,7 +1004,14 @@ async function outboundModal(existing) {
       modal.querySelector('#ob-stock-hint').textContent = `현재 재고: ${fmtNum(stock)}${existing ? ' (본 출고 건 수량은 별도로 반영되어 있습니다)' : ' — 이 수량을 초과하여 출고할 수 없습니다.'}`;
     } catch (e) { /* ignore */ }
   }
-  modal.querySelector('#ob-store').addEventListener('change', refreshStockHint);
+  modal.querySelector('#ob-store').addEventListener('change', async (e) => {
+    if (!existing) {
+      const its = await fetchItemsForStore(e.target.value);
+      const sel = modal.querySelector('#ob-item-select');
+      sel.innerHTML = its.map((it) => `<option value="${it.id}" data-code="${esc(it.item_code)}">${esc(it.item_name)} (${esc(it.item_code)})</option>`).join('') || '<option value="">등록된 품목이 없습니다</option>';
+    }
+    refreshStockHint();
+  });
   modal.querySelector('#ob-item-select').addEventListener('change', refreshStockHint);
   refreshStockHint();
 }

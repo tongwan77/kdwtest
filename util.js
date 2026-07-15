@@ -8,6 +8,15 @@ function sendJSON(res, status, obj) {
 }
 
 function readBody(req) {
+  // Vercel Node 서버리스 함수는 JSON 본문을 req.body로 미리 파싱해서 넘겨줍니다.
+  if (req.body !== undefined && req.body !== null) {
+    if (typeof req.body === 'string') {
+      try { return Promise.resolve(req.body ? JSON.parse(req.body) : {}); }
+      catch (e) { return Promise.resolve({}); }
+    }
+    return Promise.resolve(req.body);
+  }
+  // 로컬 raw http 서버(server.js)에서는 스트림을 직접 읽습니다.
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', (chunk) => {
@@ -73,7 +82,7 @@ class Router {
 }
 
 function getIp(req) {
-  return (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString();
+  return (req.headers['x-forwarded-for'] || (req.socket && req.socket.remoteAddress) || '').toString();
 }
 
 module.exports = { sendJSON, readBody, Router, getIp };
