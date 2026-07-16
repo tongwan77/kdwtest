@@ -5,6 +5,29 @@ const { sendJSON, readBody, Router, getIp } = require('./util');
 const router = new Router();
 
 // ---------------------------------------------------------------------------
+// 진단용: DB 연결 상태 확인 (인증 불필요, 문제 해결 후에는 제거하거나 관리자 전용으로 바꾸는 것을 권장)
+// ---------------------------------------------------------------------------
+router.get('/api/_health', async (req, res) => {
+  const hasConnectionString = !!(
+    process.env.POSTGRES_URL || process.env.DATABASE_URL ||
+    process.env.POSTGRES_PRISMA_URL || process.env.POSTGRES_URL_NON_POOLING
+  );
+  const envVarsSeen = ['POSTGRES_URL', 'DATABASE_URL', 'POSTGRES_PRISMA_URL', 'POSTGRES_URL_NON_POOLING']
+    .filter((k) => !!process.env[k]);
+  let canQuery = false;
+  let tableCount = null;
+  let queryError = null;
+  try {
+    const r = await db.get("SELECT COUNT(*)::int c FROM information_schema.tables WHERE table_schema='public'");
+    canQuery = true;
+    tableCount = r.c;
+  } catch (e) {
+    queryError = e.message;
+  }
+  sendJSON(res, 200, { hasConnectionString, envVarsSeen, canQuery, tableCount, queryError });
+});
+
+// ---------------------------------------------------------------------------
 // 공통 헬퍼
 // ---------------------------------------------------------------------------
 async function getUser(req) {
