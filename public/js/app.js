@@ -66,6 +66,31 @@ const LOGO_SVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/
   <path d="M24 6c-2 5-2 8 0 10" stroke="#EAF3F0" stroke-width="1.2" stroke-linecap="round"/>
 </svg>`;
 
+// 탭이 전부 닫혔을 때 보여주는 손그림(스케치) 느낌의 일러스트 - 식자재 바구니
+const EMPTY_STATE_SVG = `<svg viewBox="0 0 220 180" fill="none" xmlns="http://www.w3.org/2000/svg" stroke-linecap="round" stroke-linejoin="round">
+  <ellipse cx="110" cy="156" rx="58" ry="8" fill="#23282A" opacity="0.06"/>
+  <!-- 바구니 -->
+  <path d="M46 100 L54 150 Q56 156 62 156 L158 156 Q164 156 166 150 L174 100 Z" stroke="#9C5E1E" stroke-width="2.4" fill="#FBF0E1"/>
+  <path d="M46 100 L174 100" stroke="#9C5E1E" stroke-width="2.6"/>
+  <path d="M60 106 L66 150 M92 104 L94 152 M126 104 L124 152 M160 106 L154 150" stroke="#C98A46" stroke-width="1.6" opacity="0.7"/>
+  <path d="M78 100 C 78 82, 142 82, 142 100" stroke="#9C5E1E" stroke-width="2.6" fill="none"/>
+  <!-- 당근 -->
+  <path d="M96 98 C 100 70, 112 56, 122 46 C 116 60, 110 78, 106 98 Z" fill="#EFA968" stroke="#B9762F" stroke-width="1.6"/>
+  <path d="M120 48 C 122 42, 128 40, 132 41" stroke="#3F7A54" stroke-width="2" fill="none"/>
+  <path d="M119 44 C 122 37, 129 34, 134 36" stroke="#3F7A54" stroke-width="2" fill="none"/>
+  <path d="M115 46 C 116 39, 121 34, 126 32" stroke="#3F7A54" stroke-width="2" fill="none"/>
+  <!-- 양파 -->
+  <circle cx="130" cy="88" r="17" fill="#F4E3E6" stroke="#B9762F" stroke-width="1.8"/>
+  <path d="M130 71 C 128 64, 132 58, 130 52" stroke="#3F7A54" stroke-width="2" fill="none"/>
+  <path d="M114 82 C 122 78, 138 78, 146 84" stroke="#D9A9AE" stroke-width="1.4" fill="none" opacity="0.8"/>
+  <!-- 잎채소 -->
+  <path d="M72 98 C 66 84, 70 70, 82 62 C 78 76, 78 88, 82 98 Z" fill="#CFE3D6" stroke="#3F7A54" stroke-width="1.6"/>
+  <path d="M77 96 C 74 86, 76 76, 84 68" stroke="#3F7A54" stroke-width="1.2" opacity="0.7" fill="none"/>
+  <!-- 반짝임 -->
+  <path d="M188 54 l4 4 m-4 0 l4 -4" stroke="#D98A3D" stroke-width="2"/>
+  <path d="M30 66 l3 3 m-3 0 l3 -3" stroke="#1F6F5C" stroke-width="1.8" opacity="0.7"/>
+</svg>`;
+
 // ---------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------
@@ -74,6 +99,8 @@ async function boot() {
     const { user } = await api('/api/auth/me');
     S.user = user;
     await loadCommonData();
+    S.page = defaultPage();
+    S.openTabs = [S.page];
     renderShell();
   } catch (e) {
     renderLogin();
@@ -137,6 +164,8 @@ function renderLogin() {
       const { user } = await api('/api/auth/login', { method: 'POST', body: { username: fd.get('username'), password: fd.get('password') } });
       S.user = user;
       await loadCommonData();
+      S.page = defaultPage();
+      S.openTabs = [S.page];
       renderShell();
     } catch (err) {
       document.getElementById('login-error').innerHTML = `<div class="login-error">${esc(err.message)}</div>`;
@@ -182,8 +211,6 @@ function defaultPage() {
 }
 
 function renderShell() {
-  if (!S.page) S.page = defaultPage();
-  if (S.openTabs.length === 0) S.openTabs = [S.page];
   const nav = NAV[S.user.role];
   const roleLabel = S.user.role === 'SUPER_ADMIN' ? '최고관리자' : '영양사';
 
@@ -256,10 +283,13 @@ function closeTab(key, evt) {
   const idx = S.openTabs.indexOf(key);
   if (idx === -1) return;
   S.openTabs.splice(idx, 1);
-  if (S.openTabs.length === 0) S.openTabs.push(defaultPage());
   if (S.page === key) {
-    const newIdx = Math.max(0, idx - 1);
-    S.page = S.openTabs[newIdx];
+    if (S.openTabs.length === 0) {
+      S.page = null; // 모든 탭이 닫힘 - 빈 상태 화면 표시
+    } else {
+      const newIdx = Math.max(0, idx - 1);
+      S.page = S.openTabs[newIdx];
+    }
   }
   syncSidebarActiveState();
   renderTabBar();
@@ -273,7 +303,7 @@ function renderTabBar() {
   bar.innerHTML = S.openTabs.map((key) => `
     <button class="tab-chip ${S.page === key ? 'active' : ''}" data-tab="${key}">
       <span class="tab-chip-label">${esc(PAGE_TITLES[key] || key)}</span>
-      ${S.openTabs.length > 1 ? `<span class="tab-chip-close" data-tab-close="${key}" title="탭 닫기">✕</span>` : ''}
+      ${`<span class="tab-chip-close" data-tab-close="${key}" title="탭 닫기">✕</span>`}
     </button>
   `).join('');
   bar.querySelectorAll('[data-tab]').forEach((el) => {
@@ -337,6 +367,15 @@ const PAGE_TITLES = {
 
 function renderPage() {
   const c = document.getElementById('content');
+  if (!S.page || S.openTabs.length === 0) {
+    c.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-art">${EMPTY_STATE_SVG}</div>
+        <h3>열려 있는 메뉴가 없습니다</h3>
+        <p>왼쪽 사이드바에서 메뉴를 선택하면 탭이 열립니다.</p>
+      </div>`;
+    return;
+  }
   c.innerHTML = '<p style="color:var(--color-text-muted)">불러오는 중...</p>';
   const fns = {
     'admin-nutritionists': pageNutritionists,
