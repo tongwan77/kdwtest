@@ -32,7 +32,7 @@ node server.js
 
 - **DB**: PostgreSQL (Vercel Postgres / Neon). `pg` 패키지로 연결하며, `?` 플레이스홀더 SQL을 자동으로 `$1,$2...` 형식으로 변환하는 얇은 래퍼(`db.js`)를 사용합니다.
 - **서버 로직**: `api.js`(라우트), `auth.js`(세션 인증), `util.js`(공통 유틸) — 두 배포 방식 모두에서 동일한 코드를 그대로 재사용합니다.
-- **Vercel 배포**: `api/[...path].js` (catch-all 서버리스 함수)가 모든 `/api/*` 요청을 처리하고, `vercel.json`의 rewrites로 `public/` 폴더를 정적 사이트로 서빙합니다.
+- **Vercel 배포**: `api/handler.js`가 `/api/*` 요청을 전부 처리합니다. `vercel.json`의 rewrites로 `/api/:path*` → `/api/handler`, 그리고 `public/` 폴더를 정적 사이트로 서빙합니다. (동적 파일명 `[...path].js` 방식은 일부 배포 환경에서 인식되지 않는 문제가 있어 rewrites 기반으로 변경했습니다.)
 - **로컬/자체서버 배포**: `server.js` (Node 내장 `http` 모듈 기반 정적 파일 서빙 + API 라우팅)
 - **비밀번호 해시**: `node:crypto`의 `scrypt` (OWASP 권장, salt + timing-safe 비교)
 - **프론트엔드**: 빌드 도구 없는 Vanilla JS SPA (`public/`), Pretendard 폰트, 반응형 CSS
@@ -73,7 +73,8 @@ auth.js           세션 인증 (로그인/로그아웃/토큰) - Vercel req.coo
 util.js           공통 유틸(JSON 응답, 라우터, 바디 파싱) - Vercel req.body 겸용
 api.js            전체 REST API 라우트 (Postgres 비동기 호출)
 server.js         로컬/자체서버용 진입점 (Node http)
-api/[...path].js  Vercel 서버리스 함수 진입점 (catch-all)
+api/handler.js    Vercel 서버리스 함수 진입점 (/api/* 전체 처리, vercel.json rewrites로 연결)
+api/ping.js       배포 진단용 테스트 엔드포인트 (/api/ping)
 vercel.json       Vercel 라우팅/함수 설정
 public/
   index.html      SPA 진입 HTML
