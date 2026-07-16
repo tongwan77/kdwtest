@@ -5,6 +5,7 @@
 const S = {
   user: null,
   page: null,
+  openTabs: [],        // 열려 있는 탭(메뉴) key 목록
   stores: [],          // 접근 가능한 매장 목록
   selectedStoreId: null,
   items: [],
@@ -182,6 +183,7 @@ function defaultPage() {
 
 function renderShell() {
   if (!S.page) S.page = defaultPage();
+  if (S.openTabs.length === 0) S.openTabs = [S.page];
   const nav = NAV[S.user.role];
   const roleLabel = S.user.role === 'SUPER_ADMIN' ? '최고관리자' : '영양사';
 
@@ -212,8 +214,7 @@ function renderShell() {
     <div class="main-col">
       <header class="topbar">
         <button class="hamburger" id="hamburger" aria-label="메뉴"><span></span><span></span><span></span></button>
-        <span class="topbar-title" id="page-title"></span>
-        <span class="topbar-spacer"></span>
+        <div class="tab-bar" id="tab-bar"></div>
         <div class="store-select-wrap" id="store-select-slot"></div>
       </header>
       <main class="content" id="content"></main>
@@ -225,13 +226,75 @@ function renderShell() {
   document.getElementById('logout-btn').addEventListener('click', doLogout);
   document.getElementById('pw-req-btn').addEventListener('click', requestPasswordReset);
   $app.querySelectorAll('[data-nav]').forEach((b) => b.addEventListener('click', () => {
-    S.page = b.dataset.nav;
     S.sidebarOpen = false;
-    renderShell();
+    openTab(b.dataset.nav);
   }));
 
+  renderTabBar();
   renderStoreSelector();
   renderPage();
+}
+
+// 탭이 열려있지 않으면 열고, 이미 열려있으면 그 탭으로 전환한다.
+function openTab(key) {
+  if (!S.openTabs.includes(key)) S.openTabs.push(key);
+  switchTab(key);
+}
+
+// 탭/사이드바 전체를 다시 그리지 않고, 탭바·사이드바 활성표시·본문만 갱신한다.
+function switchTab(key) {
+  S.page = key;
+  syncSidebarActiveState();
+  syncSidebarOpenState();
+  renderTabBar();
+  renderStoreSelector();
+  renderPage();
+}
+
+function closeTab(key, evt) {
+  if (evt) evt.stopPropagation();
+  const idx = S.openTabs.indexOf(key);
+  if (idx === -1) return;
+  S.openTabs.splice(idx, 1);
+  if (S.openTabs.length === 0) S.openTabs.push(defaultPage());
+  if (S.page === key) {
+    const newIdx = Math.max(0, idx - 1);
+    S.page = S.openTabs[newIdx];
+  }
+  syncSidebarActiveState();
+  renderTabBar();
+  renderStoreSelector();
+  renderPage();
+}
+
+function renderTabBar() {
+  const bar = document.getElementById('tab-bar');
+  if (!bar) return;
+  bar.innerHTML = S.openTabs.map((key) => `
+    <button class="tab-chip ${S.page === key ? 'active' : ''}" data-tab="${key}">
+      <span class="tab-chip-label">${esc(PAGE_TITLES[key] || key)}</span>
+      ${S.openTabs.length > 1 ? `<span class="tab-chip-close" data-tab-close="${key}" title="탭 닫기">✕</span>` : ''}
+    </button>
+  `).join('');
+  bar.querySelectorAll('[data-tab]').forEach((el) => {
+    el.addEventListener('click', () => switchTab(el.dataset.tab));
+  });
+  bar.querySelectorAll('[data-tab-close]').forEach((el) => {
+    el.addEventListener('click', (e) => closeTab(el.dataset.tabClose, e));
+  });
+}
+
+function syncSidebarActiveState() {
+  document.querySelectorAll('[data-nav]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.nav === S.page);
+  });
+}
+
+function syncSidebarOpenState() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('overlay');
+  if (sidebar) sidebar.classList.toggle('open', S.sidebarOpen);
+  if (overlay) overlay.classList.toggle('show', S.sidebarOpen);
 }
 
 function renderStoreSelector() {
@@ -252,7 +315,7 @@ function renderStoreSelector() {
 
 async function doLogout() {
   await api('/api/auth/logout', { method: 'POST' });
-  S.user = null; S.page = null;
+  S.user = null; S.page = null; S.openTabs = [];
   renderLogin();
 }
 
@@ -273,7 +336,6 @@ const PAGE_TITLES = {
 };
 
 function renderPage() {
-  document.getElementById('page-title').textContent = PAGE_TITLES[S.page] || '';
   const c = document.getElementById('content');
   c.innerHTML = '<p style="color:var(--color-text-muted)">불러오는 중...</p>';
   const fns = {

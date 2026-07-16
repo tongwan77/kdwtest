@@ -121,6 +121,24 @@ a { color: inherit; }
   display: flex; align-items: center; gap: 16px; padding: 0 24px; position: sticky; top: 0; z-index: 20;
 }
 .topbar-title { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
+
+.tab-bar { display: flex; align-items: stretch; gap: 6px; overflow-x: auto; height: 100%; min-width: 0; flex: 1; scrollbar-width: thin; }
+.tab-bar::-webkit-scrollbar { height: 4px; }
+.tab-chip {
+  display: flex; align-items: center; gap: 8px; padding: 0 12px; border: none; background: transparent;
+  border-radius: var(--radius-sm); color: var(--color-text-muted); font-size: 13.5px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; flex-shrink: 0; position: relative; margin: 8px 0;
+}
+.tab-chip:hover { background: var(--color-bg); color: var(--color-text); }
+.tab-chip.active { background: var(--color-primary-light); color: var(--color-primary-dark); }
+.tab-chip.active::after {
+  content: ''; position: absolute; left: 10px; right: 10px; bottom: -9px; height: 2px; background: var(--color-primary);
+}
+.tab-chip-close {
+  display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;
+  border-radius: 50%; font-size: 10px; color: inherit; opacity: 0.6;
+}
+.tab-chip-close:hover { opacity: 1; background: rgba(0,0,0,0.08); }
 .hamburger { display: none; background: none; border: none; cursor: pointer; padding: 6px; }
 .hamburger span { display: block; width: 20px; height: 2px; background: var(--color-text); margin: 4px 0; border-radius: 2px; }
 .topbar-spacer { flex: 1; }
@@ -221,5 +239,5 @@ td.num, th.num { text-align: right; font-family: var(--font-mono); }
   .filter-field { min-width: 0; }
   .page-head { flex-direction: column; align-items: flex-start; }
   .topbar { padding: 0 12px; gap: 10px; }
-  .topbar-title { font-size: 14.5px; }
+  .tab-chip { font-size: 13px; padding: 0 10px; }
 }
